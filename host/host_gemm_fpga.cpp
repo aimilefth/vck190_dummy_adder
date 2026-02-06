@@ -40,6 +40,22 @@ int FPGA_GEMM::fpga_init(const std::string& xclbin_path, const unsigned int devi
     inB_host_ptr  = inB_bo.map<float*>();
     outC_host_ptr = outC_bo.map<float*>();
 
+
+    std::cout << "Mapped pointers: A=" << (void*)inA_host_ptr
+            << " B=" << (void*)inB_host_ptr
+            << " C=" << (void*)outC_host_ptr << std::endl;
+
+        // 3. CRITICAL CHECK: Ensure pointers are valid
+    if (inA_host_ptr == nullptr || inB_host_ptr == nullptr || outC_host_ptr == nullptr) {
+        std::cerr << "Error: Failed to map XRT Buffer Objects to host memory!" << std::endl;
+        std::cerr << "  inA: " << inA_host_ptr << std::endl;
+        std::cerr << "  inB: " << inB_host_ptr << std::endl;
+        std::cerr << "  outC: " << outC_host_ptr << std::endl;
+        return -1; // Fail gracefully
+    }
+
+
+
     run_gemm = xrt::run(gemm_kernel);
     run_gemm.set_arg(0, inA_bo);
     run_gemm.set_arg(1, inB_bo);

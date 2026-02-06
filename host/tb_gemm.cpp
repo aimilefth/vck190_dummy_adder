@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     srand((unsigned)time(NULL));
 
     if (argc < 2) {
-        std::cerr << "Usage:\n  " << argv[0] << " <xclbin_path> [device_index] [iterations]\n";
+        std::cerr << "Usage:\n  " << argv[0] << " <xclbin_path> [device_index] [iterations]" << std::endl;
         return 1;
     }
 
@@ -38,15 +38,15 @@ int main(int argc, char** argv) {
     const unsigned device_index = (argc >= 3) ? (unsigned)std::stoul(argv[2]) : 0;
     const unsigned iterations  = (argc >= 4) ? (unsigned)std::stoul(argv[3]) : 1;
 
-    std::cout << "Initializing FPGA...\n";
+    std::cout << "Initializing FPGA..." << std::endl;
     
     FPGA_GEMM fpga;
     if (fpga.fpga_init(xclbin_path, device_index) != 0) {
-        std::cerr << "FPGA init failed.\n";
+        std::cerr << "FPGA init failed." << std::endl;
         return 1;
     }
 
-    std::cout << "Generating random input data...\n";
+    std::cout << "Generating random input data..." << std::endl;
 
     // 1. Generate Input Data directly into mapped pointers
     // Note: We use the sizes defined in the class (which usually come from host_visible.h)
@@ -54,22 +54,22 @@ int main(int argc, char** argv) {
     generate_random_data(fpga.get_inB_ptr(), FPGA_GEMM::B_ELEMS);
 
     // 2. Compute Golden Reference (Software)
-    std::cout << "Computing golden reference (Software)...\n";
+    std::cout << "Computing golden reference (Software)..." << std::endl;
     std::vector<float> golden;
     compute_golden(fpga.get_inA_ptr(), fpga.get_inB_ptr(), golden, GEMM_M, GEMM_N);
 
     // 3. Optional Warmup
-    std::cout << "Warming up...\n";
+    std::cout << "Warming up..." << std::endl;
     fpga.warmup(1);
 
     // 4. Run Hardware
-    std::cout << "Running FPGA Kernel (" << iterations << " iterations)...\n";
+    std::cout << "Running FPGA Kernel (" << iterations << " iterations)..." << std::endl;
     for (unsigned i = 0; i < iterations; ++i) {
         fpga.run();
     }
 
     // 5. Compare Results
-    std::cout << "Verifying results...\n";
+    std::cout << "Verifying results..." << std::endl;
     bool pass = true;
     const float tol = 0.1f;
     float* outC = fpga.get_outC_ptr();
@@ -87,36 +87,36 @@ int main(int argc, char** argv) {
     }
 
     // Debug print: last row (Index GEMM_M-1)
-    std::cout << "\n=== Debug: last row (index " << (GEMM_M - 1) << ") ===\n";
+    std::cout << "\n=== Debug: last row (index " << (GEMM_M - 1) << ") ===" << std::endl;
     
-    std::cout << "outC[GEMM_M-1][*] (computed):\n";
+    std::cout << "outC[GEMM_M-1][*] (computed):" << std::endl;
     for (int j = 0; j < GEMM_N; j++) {
         std::cout << outC[(std::size_t)(GEMM_M - 1) * GEMM_N + j];
         if (j != GEMM_N - 1) std::cout << ", ";
     }
 
-    std::cout << "\n\ngolden[GEMM_M-1][*] (reference):\n";
+    std::cout << "\n\ngolden[GEMM_M-1][*] (reference):" << std::endl;
     for (int j = 0; j < GEMM_N; j++) {
         std::cout << golden[(std::size_t)(GEMM_M - 1) * GEMM_N + j];
         if (j != GEMM_N - 1) std::cout << ", ";
     }
 
-    std::cout << "\n\nabs(outC - golden) row GEMM_M-1:\n";
+    std::cout << "\n\nabs(outC - golden) row GEMM_M-1:" << std::endl;
     for (int j = 0; j < GEMM_N; j++) {
         float d = std::fabs(outC[(std::size_t)(GEMM_M - 1) * GEMM_N + j] -
                             golden[(std::size_t)(GEMM_M - 1) * GEMM_N + j]);
         std::cout << d;
         if (j != GEMM_N - 1) std::cout << ", ";
     }
-    std::cout << "\n=================================\n\n";
+    std::cout << "\n=================================\n" << std::endl;
 
     fpga.print_performance_timings();
 
     if (!pass) {
-        std::cerr << "FAILED (tol=" << tol << ")\n";
+        std::cerr << "FAILED (tol=" << tol << ")" << std::endl;
         return 1;
     }
 
-    std::cout << "PASSED\n";
+    std::cout << "PASSED" << std::endl;
     return 0;
 }

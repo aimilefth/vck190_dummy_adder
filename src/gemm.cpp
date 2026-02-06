@@ -37,7 +37,6 @@ void gemm(float16 inA[num_chunks_A], float16 inB[num_chunks_B], float16 outC[num
     #pragma HLS INTERFACE mode=s_axilite port=inB  bundle=control
     #pragma HLS INTERFACE mode=s_axilite port=outC bundle=control
     #pragma HLS INTERFACE mode=s_axilite port=return bundle=control
-    #pragma HLS DATAFLOW
     #ifndef __SYNTHESIS__
     assert(!((TILE_N > 1) && (TILE_M == 1)) && "TILE_N>1 AND TILE_M==1 Do not work");
     assert(!((GEMM_N/TILE_N) < 16) && "TILE_N makes Column width of Tile (GEMM_N/TILE_N) < 16. This is not working.");
