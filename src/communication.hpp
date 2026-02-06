@@ -44,6 +44,7 @@ void load_input(
     hls::stream<float16>& c_stream
 ) {
     #pragma HLS INLINE off
+    #pragma HLS DATAFLOW
     load_input_A(inA, a_stream);
     load_input_B(inB, b_stream);
     load_input_C(inC, c_stream); // NEW
