@@ -28,7 +28,7 @@ void adder(
 void gemm(float16 inA[num_chunks_A], float16 inB[num_chunks_B], float16 outC[num_chunks_C]) {
     #pragma HLS INTERFACE mode=m_axi port=inA  bundle=gmem0 offset=slave max_widen_bitwidth=512 \
         num_read_outstanding=1 max_read_burst_length=64
-    #pragma HLS INTERFACE mode=m_axi port=inB  bundle=gmem0 offset=slave max_widen_bitwidth=512 \
+    #pragma HLS INTERFACE mode=m_axi port=inB  bundle=gmem1 offset=slave max_widen_bitwidth=512 \
         num_read_outstanding=1 max_read_burst_length=64
     #pragma HLS INTERFACE mode=m_axi port=outC bundle=gmem0 offset=slave max_widen_bitwidth=512 \
         num_write_outstanding=1 max_write_burst_length=64
