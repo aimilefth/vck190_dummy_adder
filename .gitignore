@@ -1,0 +1,14 @@
+.ipcache
+_x*
+build_dir*
+*.xml
+*.o
+# ignore everything under hls_project by default
+hls_project/
+# but keep the directory structure so unignored files can be tracked
+!hls_project/**/
+
+# allow these specific files/dirs to be tracked
+!hls_project/gemm/gemm.log
+!hls_project/gemm/sim/report/forward_cosim.rpt
+!hls_project/gemm/syn/report/**
