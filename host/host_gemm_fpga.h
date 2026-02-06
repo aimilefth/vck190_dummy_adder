@@ -24,14 +24,19 @@ public:
     void run_benchmark(unsigned int iterations);
     void run_benchmark_hostdatatransfer(unsigned int iterations);
     void print_performance_timings() const;
+    
     float* get_inA_ptr();
     float* get_inB_ptr();
-    float* get_outC_ptr();
+    float* get_inC_ptr(); // NEW
+    float* get_outD_ptr(); // WAS outC
 
     // Sizes (in floats)
     static constexpr std::size_t A_ELEMS = (std::size_t)GEMM_M * (std::size_t)GEMM_K;
     static constexpr std::size_t B_ELEMS = (std::size_t)GEMM_K * (std::size_t)GEMM_N;
+    // C is now an input
     static constexpr std::size_t C_ELEMS = (std::size_t)GEMM_M * (std::size_t)GEMM_N;
+    // D is the new output
+    static constexpr std::size_t D_ELEMS = (std::size_t)GEMM_M * (std::size_t)GEMM_N;
 
 private:
     xrt::device device;
@@ -39,11 +44,13 @@ private:
 
     xrt::bo inA_bo;
     xrt::bo inB_bo;
-    xrt::bo outC_bo;
+    xrt::bo inC_bo;  // NEW
+    xrt::bo outD_bo; // WAS outC
 
     float* inA_host_ptr;
     float* inB_host_ptr;
-    float* outC_host_ptr;
+    float* inC_host_ptr;  // NEW
+    float* outD_host_ptr; // WAS outC
 
     xrt::run run_gemm;
 

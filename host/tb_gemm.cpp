@@ -13,15 +13,13 @@ static void generate_random_data(float* dst, std::size_t n_floats) {
     }
 }
 
-// Helper to calculate Software Reference
-// NOTE: Based on your HLS kernel 'adder', this performs Element-wise Addition.
-// If your kernel performs actual GEMM (Matrix Mult), change this logic.
-static void compute_golden(const float* A, const float* B, std::vector<float>& C, int M, int N) {
+// Helper to calculate Software Reference (A + B + C)
+static void compute_golden(const float* A, const float* B, const float* C_in, std::vector<float>& D, int M, int N) {
     std::size_t total_elements = (std::size_t)M * (std::size_t)N;
-    C.resize(total_elements);
+    D.resize(total_elements);
     
     for (std::size_t i = 0; i < total_elements; ++i) {
-        C[i] = A[i] + B[i];
+        D[i] = A[i] + B[i] + C_in[i]; // Added C
     }
 }
 
@@ -52,63 +50,41 @@ int main(int argc, char** argv) {
     // Note: We use the sizes defined in the class (which usually come from host_visible.h)
     generate_random_data(fpga.get_inA_ptr(), FPGA_GEMM::A_ELEMS);
     generate_random_data(fpga.get_inB_ptr(), FPGA_GEMM::B_ELEMS);
+    generate_random_data(fpga.get_inC_ptr(), FPGA_GEMM::C_ELEMS); // NEW
 
     // 2. Compute Golden Reference (Software)
-    std::cout << "Computing golden reference (Software)..." << std::endl;
+    std::cout << "Computing golden reference (Software A+B+C)..." << std::endl;
     std::vector<float> golden;
-    compute_golden(fpga.get_inA_ptr(), fpga.get_inB_ptr(), golden, GEMM_M, GEMM_N);
+    compute_golden(fpga.get_inA_ptr(), fpga.get_inB_ptr(), fpga.get_inC_ptr(), golden, GEMM_M, GEMM_N);
 
-    // 3. Optional Warmup
     std::cout << "Warming up..." << std::endl;
     fpga.warmup(1);
 
-    // 4. Run Hardware
     std::cout << "Running FPGA Kernel (" << iterations << " iterations)..." << std::endl;
     for (unsigned i = 0; i < iterations; ++i) {
         fpga.run();
     }
 
-    // 5. Compare Results
     std::cout << "Verifying results..." << std::endl;
     bool pass = true;
     const float tol = 0.1f;
-    float* outC = fpga.get_outC_ptr();
+    float* outD = fpga.get_outD_ptr();
 
     for (int r = 0; r < GEMM_M; ++r) {
         for (int c = 0; c < GEMM_N; ++c) {
             const std::size_t idx = (std::size_t)r * (std::size_t)GEMM_N + (std::size_t)c;
-            const float diff = std::fabs(outC[idx] - golden[idx]);
-            if (diff > tol) {
-                pass = false;
-                // Optional: Print first few failures
-                // std::cerr << "Mismatch at " << r << "," << c << " HW: " << outC[idx] << " SW: " << golden[idx] << "\n";
-            }
+            const float diff = std::fabs(outD[idx] - golden[idx]);
+            if (diff > tol) pass = false;
         }
     }
 
-    // Debug print: last row (Index GEMM_M-1)
-    std::cout << "\n=== Debug: last row (index " << (GEMM_M - 1) << ") ===" << std::endl;
-    
-    std::cout << "outC[GEMM_M-1][*] (computed):" << std::endl;
-    for (int j = 0; j < GEMM_N; j++) {
-        std::cout << outC[(std::size_t)(GEMM_M - 1) * GEMM_N + j];
-        if (j != GEMM_N - 1) std::cout << ", ";
-    }
-
-    std::cout << "\n\ngolden[GEMM_M-1][*] (reference):" << std::endl;
-    for (int j = 0; j < GEMM_N; j++) {
-        std::cout << golden[(std::size_t)(GEMM_M - 1) * GEMM_N + j];
-        if (j != GEMM_N - 1) std::cout << ", ";
-    }
-
-    std::cout << "\n\nabs(outC - golden) row GEMM_M-1:" << std::endl;
-    for (int j = 0; j < GEMM_N; j++) {
-        float d = std::fabs(outC[(std::size_t)(GEMM_M - 1) * GEMM_N + j] -
-                            golden[(std::size_t)(GEMM_M - 1) * GEMM_N + j]);
-        std::cout << d;
-        if (j != GEMM_N - 1) std::cout << ", ";
-    }
-    std::cout << "\n=================================\n" << std::endl;
+    // Debug print
+    std::cout << "\n=== Debug: last row ===" << std::endl;
+    std::cout << "outD (HW): ";
+    for (int j = 0; j < 8; j++) std::cout << outD[(std::size_t)(GEMM_M - 1) * GEMM_N + j] << ", ";
+    std::cout << "\ngolden (SW): ";
+    for (int j = 0; j < 8; j++) std::cout << golden[(std::size_t)(GEMM_M - 1) * GEMM_N + j] << ", ";
+    std::cout << "\n";
 
     fpga.print_performance_timings();
 

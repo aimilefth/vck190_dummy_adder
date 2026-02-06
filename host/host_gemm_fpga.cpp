@@ -31,35 +31,35 @@ int FPGA_GEMM::fpga_init(const std::string& xclbin_path, const unsigned int devi
     const std::size_t A_BYTES = A_ELEMS * sizeof(float);
     const std::size_t B_BYTES = B_ELEMS * sizeof(float);
     const std::size_t C_BYTES = C_ELEMS * sizeof(float);
+    const std::size_t D_BYTES = D_ELEMS * sizeof(float);
 
+    // Map to memory banks. Trying to distribute inputs.
+    // A->Grp0, B->Grp1, C->Grp2 (if avail) or share, D->Grp0
     inA_bo  = xrt::bo(device, A_BYTES, gemm_kernel.group_id(0));
     inB_bo  = xrt::bo(device, B_BYTES, gemm_kernel.group_id(1));
-    outC_bo = xrt::bo(device, C_BYTES, gemm_kernel.group_id(2));
+    inC_bo  = xrt::bo(device, C_BYTES, gemm_kernel.group_id(2)); // NEW Arg 2
+    outD_bo = xrt::bo(device, D_BYTES, gemm_kernel.group_id(3)); // Arg 3
 
     inA_host_ptr  = inA_bo.map<float*>();
     inB_host_ptr  = inB_bo.map<float*>();
-    outC_host_ptr = outC_bo.map<float*>();
-
+    inC_host_ptr  = inC_bo.map<float*>();
+    outD_host_ptr = outD_bo.map<float*>();
 
     std::cout << "Mapped pointers: A=" << (void*)inA_host_ptr
             << " B=" << (void*)inB_host_ptr
-            << " C=" << (void*)outC_host_ptr << std::endl;
+            << " C=" << (void*)inC_host_ptr 
+            << " D=" << (void*)outD_host_ptr << "\n";
 
-        // 3. CRITICAL CHECK: Ensure pointers are valid
-    if (inA_host_ptr == nullptr || inB_host_ptr == nullptr || outC_host_ptr == nullptr) {
+    if (inA_host_ptr == nullptr || inB_host_ptr == nullptr || inC_host_ptr == nullptr || outD_host_ptr == nullptr) {
         std::cerr << "Error: Failed to map XRT Buffer Objects to host memory!" << std::endl;
-        std::cerr << "  inA: " << inA_host_ptr << std::endl;
-        std::cerr << "  inB: " << inB_host_ptr << std::endl;
-        std::cerr << "  outC: " << outC_host_ptr << std::endl;
-        return -1; // Fail gracefully
+        return -1;
     }
-
-
 
     run_gemm = xrt::run(gemm_kernel);
     run_gemm.set_arg(0, inA_bo);
     run_gemm.set_arg(1, inB_bo);
-    run_gemm.set_arg(2, outC_bo);
+    run_gemm.set_arg(2, inC_bo);  // NEW
+    run_gemm.set_arg(3, outD_bo); // WAS 2
 
     auto end_alloc = clock::now();
     time_allocate_buffers = end_alloc - start_alloc;
@@ -88,6 +88,7 @@ void FPGA_GEMM::run() {
     auto start_copy_in = clock::now();
     inA_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     inB_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    inC_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE); // NEW
     auto end_copy_in = clock::now();
     time_copy_input_to_device.push_back(end_copy_in - start_copy_in);
 
@@ -100,7 +101,7 @@ void FPGA_GEMM::run() {
 
     // Copy output to host
     auto start_copy_out = clock::now();
-    outC_bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    outD_bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
     auto end_copy_out = clock::now();
     time_copy_output_to_host.push_back(end_copy_out - start_copy_out);
 }
@@ -138,6 +139,7 @@ void FPGA_GEMM::run_benchmark_hostdatatransfer(unsigned int iterations) {
         auto start_ci = clock::now();
         inA_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         inB_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        inC_bo.sync(XCL_BO_SYNC_BO_TO_DEVICE); // NEW
         auto end_ci = clock::now();
         copy_in_ms.push_back(std::chrono::duration<double, std::milli>(end_ci - start_ci).count());
 
@@ -148,7 +150,7 @@ void FPGA_GEMM::run_benchmark_hostdatatransfer(unsigned int iterations) {
         kernel_ms.push_back(std::chrono::duration<double, std::milli>(end_k - start_k).count());
 
         auto start_co = clock::now();
-        outC_bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        outD_bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         auto end_co = clock::now();
         copy_out_ms.push_back(std::chrono::duration<double, std::milli>(end_co - start_co).count());
 
@@ -205,4 +207,5 @@ void FPGA_GEMM::print_performance_timings() const {
 
 float* FPGA_GEMM::get_inA_ptr() { return inA_host_ptr; }
 float* FPGA_GEMM::get_inB_ptr() { return inB_host_ptr; }
-float* FPGA_GEMM::get_outC_ptr() { return outC_host_ptr; }
+float* FPGA_GEMM::get_inC_ptr() { return inC_host_ptr; }
+float* FPGA_GEMM::get_outD_ptr() { return outD_host_ptr; }
