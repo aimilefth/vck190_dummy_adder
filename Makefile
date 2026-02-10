@@ -1,265 +1,313 @@
-mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
-mkfile_dir := $(dir $(mkfile_path))
-TARGET   = hw
-MODE     = linux
-HOST_ARCH = aarch64
-EN_PL = 1
-PLATFORM_REPO_PATHS = /opt/Xilinx/Vitis/2023.2/base_platforms/
+#
+# Project: GEMM on VCK190 base DFX platform
+#
 
-NUM_JOBS=4
+SHELL := /bin/bash
 
-# PLATFORM = /home/ipapal/Documents/vivado_projects/vck_190_custom_platform_1/workspace_2/vck190_custom/export/vck190_custom/vck190_custom.xpfm
-PLATFORM = $(PLATFORM_REPO_PATHS)xilinx_vck190_base_dfx_202320_1/xilinx_vck190_base_dfx_202320_1.xpfm
+############################## Help Section ##############################
+.PHONY: help all clean cleanall test sd_card run build host xclbin emconfig
 
-# Project Name settings
-KERNEL_NAME = gemm
-XCLBIN   = $(KERNEL_NAME).xclbin
-XSA      = $(KERNEL_NAME).xsa
-XPFM     = vck190_xpfm
-HOST_EXE = $(KERNEL_NAME)_host.exe
+help::
+	@echo "Makefile Usage:"
+	@echo "  make all TARGET=<sw_emu/hw_emu/hw> HOST_ARCH=<aarch64/x86> [DEVICE=<platform.xpfm>] [EDGE_COMMON_SW=<versal common image path>]"
+	@echo ""
+	@echo "  make build TARGET=<sw_emu/hw_emu/hw> HOST_ARCH=<aarch64/x86> [DEVICE=<platform.xpfm>]"
+	@echo "      Build kernel xclbin."
+	@echo ""
+	@echo "  make host HOST_ARCH=<aarch64/x86> [EDGE_COMMON_SW=<versal common image path>]"
+	@echo "      Build host executable."
+	@echo ""
+	@echo "  make run TARGET=<sw_emu/hw_emu/hw> HOST_ARCH=<aarch64/x86>"
+	@echo "      Run emulation (x86) or launch emulator (aarch64) depending on TARGET."
+	@echo ""
+	@echo "  make sd_card TARGET=<sw_emu/hw_emu/hw> HOST_ARCH=<aarch64/x86> [EDGE_COMMON_SW=<versal common image path>]"
+	@echo "      Create package (for aarch64) including rootfs/Image, host exe, run_app.sh, and data folders."
+	@echo ""
+	@echo "  make clean / make cleanall"
 
-BASE_DIR := .
+############################## Project Variables ##############################
+TARGET     ?= hw
+HOST_ARCH  ?= aarch64
 
-# Updated Source lists
-HOST_SRCS := host/tb_gemm.cpp host/host_gemm_fpga.cpp
-KERNEL_SRCS := src/gemm.cpp
+# Default platform (as requested)
+PLATFORM_REPO_PATHS = /opt/Xilinx/Vitis/2023.2/base_platforms
+DEVICE = $(PLATFORM_REPO_PATHS)/xilinx_vck190_base_dfx_202320_1/xilinx_vck190_base_dfx_202320_1.xpfm
 
-SYSROOT_PATH = /opt/petalinux/2023.2
-SYSROOT = ${SYSROOT_PATH}/sysroots/cortexa72-cortexa53-xilinx-linux
-SDKTARGETSYSROOT = ${SYSROOT}
 EDGE_COMMON_SW_PATH = /opt/petalinux_files
 EDGE_COMMON_SW= ${EDGE_COMMON_SW_PATH}/xilinx-versal-common-v2023.2
-ROOTFS=${EDGE_COMMON_SW}/rootfs.ext4
-IMAGE=${EDGE_COMMON_SW}/Image
-TEMP_DIR := ./_x.$(TARGET).xilinx_vck190_base_202320_1
-BUILD_DIR := ./build_dir.$(TARGET).xilinx_vck190_base_202320_1
-KERNEL_XO :=$(TEMP_DIR)/$(KERNEL_NAME).xo
 
-# AIE SETTINGS (Commented out for future use)
-# GRAPH   := aie/adf_graph.cpp
-# LIBADF  = libadf.a
-# AIE_CMPL_CMD = aiecompiler -platform=${PLATFORM} --target=hw --stacksize=1024 --pl-register-threshold=250 --pl-freq=230  -include="./aie" -include="./aie/layer0" --disable-transform-broadcast-split=false -workdir=./Work ${GRAPH}
-# AIE_SIM_CMD = aiesimulator --pkg-dir=./Work --dump-vcd foo --profile --output-time-stamp=no --end-wait-time=30
-# AIE_O = aie_control_xrt.o
-# GRAPH_O = adf_graph.o
-
-EMU_CMD = ./launch_hw_emu.sh
-PACKAGE_OUT = ./package.$(TARGET)
-RM = rm -f
-RMDIR = rm -rf
-
-##########################################################################################################################################################
-### DO NOT MODIFY BELOW THIS LINE UNLESS NECESSARY
-################################################################################################################################################
-
-CUR_DIR := $(patsubst %/,%,$(dir $(MK_PATH)))
-
-VCC      = v++
-VPP_SPEC = system.cfg
-VPP_XO_FLAGS += -c --platform $(PLATFORM) --save-temps --optimize 2 -g
-VPP_XO_FLAGS += --hls.jobs $(NUM_JOBS)
-# Added -I./src so the kernel can find gemm_common.h
-VPP_XO_FLAGS += -I$(CUR_DIR)/src 
-
-# ---------------------------------------------------------------------------- #
-# ---------------------------------------------------------------------------- #
-# PROFILING
-# VPP_LINK_FLAGS = --profile.data all:all:all  
-# VPP_LINK_FLAGS += --profile.trace_memory DDR
-# ---------------------------------------------------------------------------- #
-# ---------------------------------------------------------------------------- #
+# PetaLinux SDK sysroot used for cross-compiling the host (has XRT headers)
+SYSROOT_PATH ?= /opt/petalinux/2023.2
+SYSROOT      ?= $(SYSROOT_PATH)/sysroots/cortexa72-cortexa53-xilinx-linux
 
 
-GCC_FLAGS := -Wall -c \
-                         -std=c++14 \
-                         -Wno-int-to-pointer-cast \
-                         --sysroot=$(SYSROOT) \
+# Kernel / Host naming
+KERNEL_NAME ?= gemm
 
-# Added -I./src so the host can find host_visible.h
-GCC_INCLUDES := -I$(SYSROOT)/usr/include/xrt \
-                                -I./  \
-                                -I./src \
-                                -I./host \
-                                -I${XILINX_VITIS}/aietools/include \
-                                -I${XILINX_VITIS}/include
-                                # -I./aie
+KERNEL_DIR  ?= src
+HOST_DIR    ?= host
 
+KERNEL_CFG  ?= hls.cfg
+LINK_CFG    ?= system.cfg
 
-GCC_LIB := -ladf_api_xrt -lgcc -lc -lxrt_coreutil \
-                                         -lxilinxopencl -lpthread -lrt -ldl -lcrypt -lstdc++ \
-                                 -L$(SYSROOT)/usr/lib \
-                                 --sysroot=$(SYSROOT) \
-                                 -L${XILINX_VITIS}/aietools/lib/aarch64.o
+# Sources
+KERNEL_SRCS ?= $(KERNEL_DIR)/$(KERNEL_NAME).cpp
+HOST_SRCS   ?= $(HOST_DIR)/tb_gemm.cpp $(HOST_DIR)/host_gemm_fpga.cpp
 
+# Output names
+EXECUTABLE  ?= ./$(KERNEL_NAME)_host.exe
 
+# Friendly name from device for folder names
+device2xsa = $(strip $(patsubst %.xpfm,%,$(shell basename $(DEVICE))))
+XSA := $(call device2xsa,$(DEVICE))
+
+TEMP_DIR  := ./_x.$(TARGET).$(XSA)
+BUILD_DIR := ./build_dir.$(TARGET).$(XSA)
+
+KERNEL_XO := $(TEMP_DIR)/$(KERNEL_NAME).xo
+# Detect DFX platform (rp.xsa exists next to the .xpfm)
+DFX_RP_XSA := $(dir $(DEVICE))/hw/rp.xsa
+
+ifneq ($(wildcard $(DFX_RP_XSA)),)
+  # DFX platforms require link output to be .xsa
+  LINK_OUTPUT := $(BUILD_DIR)/$(KERNEL_NAME).xsa
+else
+  # Non-DFX platforms typically link to an intermediate .xclbin
+  LINK_OUTPUT := $(BUILD_DIR)/$(KERNEL_NAME).link.xclbin
+endif
+
+FINAL_XCLBIN := $(BUILD_DIR)/$(KERNEL_NAME).xclbin
+
+BINARY_CONTAINERS := $(FINAL_XCLBIN)
+
+# Packaging / run scripts (SoC flow)
+RUN_APP_SCRIPT = ./run_app.sh
+PACKAGE_OUT    = ./package.$(TARGET)
+LAUNCH_EMULATOR = $(PACKAGE_OUT)/launch_$(TARGET).sh
+
+# Default runtime args for host (override if your host expects more)
+CMD_ARGS ?= $(FINAL_XCLBIN)
+
+############################## Toolchain ##############################
+VPP := v++
+ECHO := @echo
+CP := cp -rf
+RM := rm -f
+RMDIR := rm -rf
+
+############################## Kernel Build Flags ##############################
+VPP_FLAGS += -t $(TARGET) --platform $(DEVICE) --save-temps --optimize 2 --report_level estimate
+
+# Add debug for emulation
+ifneq ($(TARGET), hw)
+VPP_FLAGS += -g
+endif
+
+KERNEL_INC_FLAGS += -I$(KERNEL_DIR)
+
+############################## Host Build Flags ##############################
+CXXFLAGS += -Wall -O0 -g -std=c++17 -fmessage-length=0
+INC_FLAGS += -I./ -I./$(KERNEL_DIR) -I./$(HOST_DIR)
+
+# x86 vs aarch64 host toolchain setup
+ifeq ($(HOST_ARCH), x86)
+
+CXX ?= g++
+
+check-xrt:
+ifndef XILINX_XRT
+	$(error XILINX_XRT variable is not set. Please set it and rerun.)
+endif
+
+# Typical x86 XRT include/lib
+INC_FLAGS += -I$(XILINX_XRT)/include
+LDFLAGS   += -L$(XILINX_XRT)/lib -lOpenCL -lxrt_coreutil -pthread -lrt -ldl
+
+else  # aarch64
+
+check-xrt:
+ifndef XILINX_VITIS
+	$(error XILINX_VITIS variable is not set. Please set it and rerun.)
+endif
+ifndef EDGE_COMMON_SW
+	$(error EDGE_COMMON_SW variable is not set (e.g. /opt/petalinux_files/xilinx-versal-common-v2023.2).)
+endif
+ifndef SYSROOT
+	$(error SYSROOT is not set. Expected: /opt/petalinux/2023.2/sysroots/cortexa72-cortexa53-xilinx-linux)
+endif
+
+# rootfs/image still come from versal-common
+ROOTFS  := $(EDGE_COMMON_SW)/rootfs.ext4
+IMAGE   := $(EDGE_COMMON_SW)/Image
+
+# IMPORTANT: force cross compiler (do NOT use ?=)
 CXX := $(XILINX_VITIS)/gnu/aarch64/lin/aarch64-linux/bin/aarch64-linux-gnu-g++
 
+# Match the old working host compile behavior
+CXXFLAGS += -std=c++14 -Wno-int-to-pointer-cast --sysroot=$(SYSROOT)
 
-CLFLAGS += -t $(TARGET) --platform $(PLATFORM) --save-temps --optimize 2
-ifneq ($(TARGET), hw)
-        CLFLAGS += -g
+# Make sure xrt/xrt_device.h can be found
+INC_FLAGS += -I$(SYSROOT)/usr/include \
+            -I$(SYSROOT)/usr/include/xrt \
+            -I$(XILINX_VITIS)/aietools/include \
+            -I$(XILINX_VITIS)/include
+
+# Match the old working link line (important if your host uses ADF/XRT APIs)
+LDFLAGS += -ladf_api_xrt -lgcc -lc -lxrt_coreutil -lxilinxopencl \
+           -lpthread -lrt -ldl -lcrypt -lstdc++ \
+           -L$(SYSROOT)/usr/lib --sysroot=$(SYSROOT) \
+           -L$(XILINX_VITIS)/aietools/lib/aarch64.o
+
 endif
-CLFLAGS += --hls.jobs $(NUM_JOBS)
-ifeq ($(EN_PL),1)
-CLFLAGS += --config $(VPP_SPEC)
+
+############################## Essential Checks ##############################
+check-vitis:
+ifndef XILINX_VITIS
+	$(error XILINX_VITIS variable is not set. Please set it and rerun.)
 endif
-# Use hls.cfg!
-# CLFLAGS += --clock.defaultFreqHz 220000000
 
-LDCLFLAGS := --vivado.synth.jobs $(NUM_JOBS) --vivado.impl.jobs $(NUM_JOBS)
+check-devices:
+ifndef DEVICE
+	$(error DEVICE not set. Please set DEVICE=<platform.xpfm> and rerun.)
+endif
 
-.PHONY: clean
+############################## Targets ##############################
+all: check-devices $(EXECUTABLE) $(BINARY_CONTAINERS) emconfig sd_card
 
-###
-# Guarding Checks. Do not modify.
-###
-check_defined = \
-        $(strip $(foreach 1,$1, \
-                $(call __check_defined,$1,$(strip $(value 2)))))
+host: $(EXECUTABLE)
 
-__check_defined = \
-        $(if $(value $1),, \
-                $(error Undefined $1$(if $2, ($2))))
+build: check-vitis $(BINARY_CONTAINERS)
 
-guard-PLATFORM_REPO_PATHS:
-        $(call check_defined, PLATFORM_REPO_PATHS, Set your where you downloaded xilinx_vck190_base_202320_1)
+xclbin: build
 
-guard-ROOTFS:
-        $(call check_defined, ROOTFS, Set to: xilinx-versal-common-v2023.2/rootfs.ext4)
-
-guard-IMAGE:
-        $(call check_defined, IMAGE, Set to: xilinx-versal-common-v2023.2/Image)
-
-guard-CXX:
-        $(call check_defined, CXX, Run: xilinx-versal-common-v2023.2/environment-setup-cortexa72-cortexa53-xilinx-linux)
-
-guard-SDKTARGETSYSROOT:
-        $(call check_defined, SDKTARGETSYSROOT, Run: xilinx-versal-common-v2023.2/environment-setup-cortexa72-cortexa53-xilinx-linux)
-
-###
-
-# Removed 'aie' from all
-all: build host package
-run: all run_hw_emu
-sd_card: all
-
-# AIE Targets (Commented out)
-# aie: guard-PLATFORM_REPO_PATHS ${LIBADF}
-# ${LIBADF}: ${GRAPH}
-# 	${AIE_CMPL_CMD}
-# 	@echo "COMPLETE: aie success."
-
-# aiesim: ${LIBADF}
-# 	${AIE_SIM_CMD}
-# 	@echo "COMPLETE: aiesim success."
-
-build: $(XSA)
-ifeq ($(EN_PL),1)
-kernels:$(KERNEL_XO)
-# Updated to compile the specific kernel name and multiple source files
-$(KERNEL_XO): $(KERNEL_SRCS)
+############################## Directory Rules ##############################
+$(TEMP_DIR):
 	mkdir -p $(TEMP_DIR)
-	$(VCC) $(VPP_XO_FLAGS) -k $(KERNEL_NAME) $(KERNEL_SRCS) --config hls.cfg -o $@ | tee $(TEMP_DIR)/gemm.log
-	@echo "### ***** $(KERNEL_NAME) compilation done! *****"
 
-# Removed ${LIBADF} dependency here
-$(XSA): ${KERNEL_XO}
+$(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
-	$(VCC) -l $(CLFLAGS) $(VPP_LINK_FLAGS) --temp_dir $(BUILD_DIR) $(LDCLFLAGS) -o'$@' $(+) | tee $(BUILD_DIR)/link.log
+
+############################## Kernel Rules ##############################
+# Rebuild kernel if headers change
+KERNEL_DEPS := $(wildcard $(KERNEL_DIR)/*.h) $(wildcard $(KERNEL_DIR)/*.hpp)
+
+$(KERNEL_XO): $(KERNEL_SRCS) $(KERNEL_DEPS) | $(TEMP_DIR)
+	$(VPP) $(VPP_FLAGS) -c -k $(KERNEL_NAME) --config $(KERNEL_CFG) --temp_dir $(TEMP_DIR) $(KERNEL_INC_FLAGS) -o $@ $(KERNEL_SRCS)
+
+$(LINK_OUTPUT): $(KERNEL_XO) | $(BUILD_DIR)
+	$(VPP) $(VPP_FLAGS) -l --config $(LINK_CFG) --temp_dir $(TEMP_DIR) $(VPP_LDFLAGS) -o $@ $^
+
+# Keep a stable “final” xclbin name in BUILD_DIR
+# For x86: optionally run v++ -p to create a packaged xclbin (still useful for emu)
+# For aarch64: we still create FINAL_XCLBIN, but packaging happens in sd_card
+$(FINAL_XCLBIN): $(LINK_OUTPUT) | $(BUILD_DIR)
+ifeq ($(HOST_ARCH), x86)
+	$(VPP) -p $< -t $(TARGET) --platform $(DEVICE) --package.out_dir $(PACKAGE_OUT) -o $@
 else
-# Removed ${LIBADF} dependency here
-${XSA}:
-	${VCC} -g -l $(CLFLAGS) $(VPP_LINK_FLAGS) $< -o $@
+	# For embedded, keep a plain xclbin in BUILD_DIR for convenience
+	# (the real SD-card package is produced by the sd_card target below)
+	$(VPP) -p $< -t $(TARGET) --platform $(DEVICE) --package.out_dir $(PACKAGE_OUT) -o $@
 endif
 
 
-# AIE Object compilation (Commented out)
-# $(AIE_O): ./Work/ps/c_rts/aie_control_xrt.cpp
-# 	$(CXX) $(GCC_FLAGS) $(GCC_INCLUDES) $@ $<
-# $(GRAPH_O): $(GRAPH)
-# 	$(CXX) $(GCC_FLAGS) $(GCC_INCLUDES) $@ $<
+############################## Host Rules ##############################
+HOST_OBJS := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(HOST_SRCS))
 
-HOST_OBJS := $(HOST_SRCS:.cpp=.o)
+$(BUILD_DIR)/%.o: %.cpp | $(BUILD_DIR)
+	mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INC_FLAGS) -c -o $@ $<
 
-# Compile each .cpp into its own .o
-%.o: %.cpp
-	$(CXX) $(GCC_FLAGS) $(GCC_INCLUDES) -o $@ $<
+$(EXECUTABLE): $(HOST_OBJS) | check-xrt
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
-host: guard-CXX guard-SDKTARGETSYSROOT $(HOST_EXE)
-ifeq ($(EN_PL),1)
-# Removed ${AIE_O} $(GRAPH_O) dependencies and inputs
-$(HOST_EXE): $(HOST_OBJS)
-	$(CXX) $^ $(GCC_LIB) -o $@
-	@echo "COMPLETE: Host application created."
+############################## Emulation Config ##############################
+EMCONFIG_DIR = $(TEMP_DIR)
+emconfig: $(EMCONFIG_DIR)/emconfig.json
+
+$(EMCONFIG_DIR)/emconfig.json: | $(TEMP_DIR)
+	emconfigutil --platform $(DEVICE) --od $(EMCONFIG_DIR)
+
+############################## Run / Test ##############################
+run: all
+ifeq ($(TARGET),$(filter $(TARGET),sw_emu hw_emu))
+ifeq ($(HOST_ARCH), x86)
+	$(CP) $(EMCONFIG_DIR)/emconfig.json .
+	XCL_EMULATION_MODE=$(TARGET) $(EXECUTABLE) $(CMD_ARGS)
 else
-${HOST_EXE}: ${AIE_O} $(GRAPH_O)
-	$(CXX) -o $@ $^ ${GCC_LIB}
+	$(LAUNCH_EMULATOR) -run-app $(RUN_APP_SCRIPT) | tee run_app.log; exit $${PIPESTATUS[0]}
+endif
+else
+ifeq ($(HOST_ARCH), x86)
+	$(EXECUTABLE) $(CMD_ARGS)
+else
+	@echo "INFO: For hw on board, copy package.$(TARGET) contents to SD card and run on target."
+endif
 endif
 
-SIM_FILES := $(wildcard *.sim)
-SIM_FLAGS := $(foreach file, $(SIM_FILES), --package.sd_file $(file))
+test: $(EXECUTABLE)
+ifeq ($(TARGET),$(filter $(TARGET),sw_emu hw_emu))
+ifeq ($(HOST_ARCH), x86)
+	XCL_EMULATION_MODE=$(TARGET) $(EXECUTABLE) $(CMD_ARGS)
+else
+	$(LAUNCH_EMULATOR) -run-app $(RUN_APP_SCRIPT) | tee run_app.log; exit $${PIPESTATUS[0]}
+endif
+else
+ifeq ($(HOST_ARCH), x86)
+	$(EXECUTABLE) $(CMD_ARGS)
+else
+	@echo "INFO: Please run on target board (hw) or use hw_emu/sw_emu."
+endif
+endif
 
-package: guard-ROOTFS guard-IMAGE guard-PLATFORM_REPO_PATHS package_${TARGET}
-package_${TARGET}: ${XSA} ${HOST_EXE}
-	${VCC} -p -t ${TARGET} -f ${PLATFORM} \
+############################## SD Card / Packaging ##############################
+# Auto-include data directories if they exist
+SD_DIRS :=
+ifneq ($(wildcard data),)
+SD_DIRS += --package.sd_dir data
+endif
+
+sd_card: $(BINARY_CONTAINERS) | $(EXECUTABLE) gen_run_app
+ifneq ($(HOST_ARCH), x86)
+	$(VPP) -p $(LINK_OUTPUT) -t $(TARGET) --platform $(DEVICE) \
 		--package.out_dir $(PACKAGE_OUT) \
-		--package.rootfs ${ROOTFS} \
-		--package.kernel_image ${IMAGE} \
+		--package.rootfs $(ROOTFS) \
+		--package.kernel_image $(IMAGE) \
 		--package.boot_mode=sd \
-		--package.image_format=ext4 \
-		--package.defer_aie_run \
-		${SIM_FLAGS} \
-		--package.sd_file ${HOST_EXE} ${XSA} -o ${XCLBIN}
-# Removed ${LIBADF} from package.sd_file above
+		$(SD_DIRS) \
+		--package.sd_file xrt.ini \
+		--package.sd_file $(RUN_APP_SCRIPT) \
+		--package.sd_file $(EXECUTABLE) \
+		-o $(KERNEL_NAME).xclbin
 
-	@echo "COMPLETE: Package created."
+else
+	@echo "INFO: HOST_ARCH=x86 => skipping embedded sd_card packaging."
+endif
 
-run_hw_emu: launch_hw_emu.sh
-launch_hw_emu.sh: package_hw_emu
-	$(EMU_CMD)
+gen_run_app:
+ifneq ($(HOST_ARCH), x86)
+	$(RM) $(RUN_APP_SCRIPT)
+	$(ECHO) 'export LD_LIBRARY_PATH=/mnt:/tmp:$$LD_LIBRARY_PATH' >> $(RUN_APP_SCRIPT)
+	$(ECHO) 'export PATH=$$PATH:/sbin:$$PATH' >> $(RUN_APP_SCRIPT)
+	$(ECHO) 'export XILINX_XRT=/usr' >> $(RUN_APP_SCRIPT)
+ifeq ($(TARGET),$(filter $(TARGET),sw_emu hw_emu))
+	$(ECHO) 'export XCL_EMULATION_MODE=$(TARGET)' >> $(RUN_APP_SCRIPT)
+endif
+	$(ECHO) '$(notdir $(EXECUTABLE)) $(KERNEL_NAME).xclbin' >> $(RUN_APP_SCRIPT)
+	$(ECHO) 'return_code=$$?' >> $(RUN_APP_SCRIPT)
+	$(ECHO) 'if [ $$return_code -ne 0 ]; then' >> $(RUN_APP_SCRIPT)
+	$(ECHO) '  echo "ERROR: host run failed, RC=$$return_code"' >> $(RUN_APP_SCRIPT)
+	$(ECHO) 'fi' >> $(RUN_APP_SCRIPT)
+	$(ECHO) 'echo "INFO: host run completed."' >> $(RUN_APP_SCRIPT)
+	chmod +x $(RUN_APP_SCRIPT)
+endif
 
+############################## Cleaning ##############################
 clean:
-	-$(RMDIR) $(HOST_EXE) $(XCLBIN)/{*sw_emu*,*hw_emu*} 
-	-$(RMDIR) profile_* TempConfig system_estimate.xtxt *.rpt *.csv *.o *.xo *.xpe *.xsa cfg qemu_dts_files emu_qemu_scripts *.db sim  #*.a  Work aie/*.ll _x*
-	-$(RMDIR)  *v++* .Xil emconfig.json dltmp* xmltmp* *.log *.jou *.wcfg *.wdb *bin* *summary* *.BIN *.bif *.exe  *.log *.txt _x
-cleanaie: cleansim
-	-$(RMDIR) *.a  Work
-cleansim:
-	-$(RMDIR) aiesimulator_output foo.vcd ISS_RPC_SERVER_PORT
-cleantemp:
-	-$(RMDIR) ${TEMP_DIR}
-cleanhost:
-	-$(RMDIR) ${HOST_EXE} ${AIE_O} $(GRAPH_O) main.o $(HOST_OBJS)
-cleanpac:
-	-$(RMDIR) mm_${TARGET}.xclbin.package_summary package.${TARGET}
-cleanall: clean cleantemp cleansim cleanaie cleanhost cleanpac
-	-$(RMDIR) build_dir* sd_card*
-	-$(RMDIR) package.hw run_app.sh 
-	-$(RMDIR) *xclbin.run_summary qemu-memory-_* emulation _vimage pl* start_simulation.sh *.xclbin
-	$(MAKE) -C sw clean
+	-$(RMDIR) $(EXECUTABLE) $(HOST_OBJS)
+	-$(RMDIR) profile_* TempConfig system_estimate.xtxt *.rpt *.csv
+	-$(RMDIR) *v++* .Xil emconfig.json dltmp* xmltmp* *.log *.jou *.wcfg *.wdb
+	-$(RMDIR) $(TEMP_DIR) $(BUILD_DIR)
 
-
-# ---------------------------------------------------------------------------- #
-# SAVE DISK SPACE FROM THE GENERATED PROJECT
-# ---------------------------------------------------------------------------- #
-# save_disk_space:
-# 	@echo "Cleaning generated projects for disk space under: $(BASE_DIR)"
-
-# 	-$(RMDIR) $(BASE_DIR)/.ipcache
-# 	-$(RMDIR) $(BASE_DIR)/_x
-# 	-$(RMDIR) $(BASE_DIR)/.Xil
-# 	-$(RMDIR) $(BASE_DIR)/build_dir.hw.xilinx_vck190_base_202320_1/link/vivado
-# 	-$(RMDIR) $(BASE_DIR)/Work/ps
-
-# 	@for dir in $(BASE_DIR)/Work/aie/[0-9]*; do \
-# 		if [ -d "$$dir" ]; then \
-# 			echo "Deleting: $$dir"; \
-# 			rm -rf "$$dir"; \
-# 		fi \
-# 	done
-
-# 	-$(RM) $(BASE_DIR)/Work/aie/*.ll
-# 	-$(RMDIR) $(BASE_DIR)/link/int/xo
-# 	-$(RMDIR) $(BASE_DIR)/link/sys_link
-
-# 	@echo "Cleanup complete."
+cleanall: clean
+	-$(RMDIR) build_dir* package.* _x* emulation qemu-memory-* sd_card* *.xclbin.run_summary
+	-$(RMDIR) run_app.sh run_app.log *.link.xclbin
