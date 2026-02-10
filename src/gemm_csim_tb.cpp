@@ -35,10 +35,10 @@ void generate_data(float* data, size_t num_elements) {
     }
 }
 
-// A + B + C
-void compute_golden(float* A, float* B, float* C_in, float* D_golden, int M, int N) {
+// A + B + C + D
+void compute_golden(float* A, float* B, float* C, float* D, float* E_golden, int M, int N) {
     for (int i = 0; i < M * N; i++) {
-        D_golden[i] = A[i] + B[i] + C_in[i];
+        E_golden[i] = A[i] + B[i] + C[i] + D[i];
     }
 }
 
@@ -49,26 +49,30 @@ int main(int argc, char **argv) {
     const size_t B_ELEMS = (size_t)GEMM_K * (size_t)GEMM_N;
     const size_t C_ELEMS = (size_t)GEMM_M * (size_t)GEMM_N;
     const size_t D_ELEMS = (size_t)GEMM_M * (size_t)GEMM_N;
+    const size_t E_ELEMS = (size_t)GEMM_M * (size_t)GEMM_N;
+
 
     std::vector<float> input_A(A_ELEMS);
     std::vector<float> input_B(B_ELEMS);
-    std::vector<float> input_C(C_ELEMS); // NEW
-    std::vector<float> output_D_hw(D_ELEMS);
-    std::vector<float> output_D_sw(D_ELEMS);
+    std::vector<float> input_C(C_ELEMS);
+    std::vector<float> input_D(D_ELEMS);
+    std::vector<float> output_E_hw(E_ELEMS);
+    std::vector<float> output_E_sw(E_ELEMS);
 
     generate_data(input_A.data(), A_ELEMS);
     generate_data(input_B.data(), B_ELEMS);
     generate_data(input_C.data(), C_ELEMS);
+    generate_data(input_D.data(), D_ELEMS);
 
-    compute_golden(input_A.data(), input_B.data(), input_C.data(), output_D_sw.data(), GEMM_M, GEMM_N);
+    compute_golden(input_A.data(), input_B.data(), input_C.data(), input_D.data(), output_E_sw.data(), GEMM_M, GEMM_N);
 
     std::cout << "Calling HLS Kernel..." << std::endl;
     // 4 Arguments now
-    gemm((float16*)input_A.data(), (float16*)input_B.data(), (float16*)input_C.data(), (float16*)output_D_hw.data());
+    gemm((float16*)input_A.data(), (float16*)input_B.data(), (float16*)input_C.data(), (float16*)input_D.data(), (float16*)output_E_hw.data());
 
     int mismatch_count = 0;
     for (int i = 0; i < GEMM_M * GEMM_N; i++) {
-        float diff = fabsf(output_D_hw[i] - output_D_sw[i]);
+        float diff = fabsf(output_E_hw[i] - output_E_sw[i]);
         if (diff > EPSILON) {
             mismatch_count++;
             if (PRINT_MISSMATCH && mismatch_count < 5) std::cout << "Mismatch " << diff << "\n";

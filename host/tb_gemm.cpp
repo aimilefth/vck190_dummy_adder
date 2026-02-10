@@ -14,12 +14,12 @@ static void generate_random_data(float* dst, std::size_t n_floats) {
 }
 
 // Helper to calculate Software Reference (A + B + C)
-static void compute_golden(const float* A, const float* B, const float* C_in, std::vector<float>& D, int M, int N) {
+static void compute_golden(const float* A, const float* B, const float* C, const float* D, std::vector<float>& E, int M, int N) {
     std::size_t total_elements = (std::size_t)M * (std::size_t)N;
-    D.resize(total_elements);
+    E.resize(total_elements);
     
     for (std::size_t i = 0; i < total_elements; ++i) {
-        D[i] = A[i] + B[i] + C_in[i]; // Added C
+        E[i] = A[i] + B[i] + C[i] + D[i]; // Added C
     }
 }
 
@@ -50,12 +50,13 @@ int main(int argc, char** argv) {
     // Note: We use the sizes defined in the class (which usually come from host_visible.h)
     generate_random_data(fpga.get_inA_ptr(), FPGA_GEMM::A_ELEMS);
     generate_random_data(fpga.get_inB_ptr(), FPGA_GEMM::B_ELEMS);
-    generate_random_data(fpga.get_inC_ptr(), FPGA_GEMM::C_ELEMS); // NEW
+    generate_random_data(fpga.get_inC_ptr(), FPGA_GEMM::C_ELEMS);
+    generate_random_data(fpga.get_inD_ptr(), FPGA_GEMM::D_ELEMS);
 
     // 2. Compute Golden Reference (Software)
     std::cout << "Computing golden reference (Software A+B+C)..." << std::endl;
     std::vector<float> golden;
-    compute_golden(fpga.get_inA_ptr(), fpga.get_inB_ptr(), fpga.get_inC_ptr(), golden, GEMM_M, GEMM_N);
+    compute_golden(fpga.get_inA_ptr(), fpga.get_inB_ptr(), fpga.get_inC_ptr(),  fpga.get_inD_ptr(), golden, GEMM_M, GEMM_N);
 
     std::cout << "Warming up..." << std::endl;
     fpga.warmup(1);
@@ -68,20 +69,20 @@ int main(int argc, char** argv) {
     std::cout << "Verifying results..." << std::endl;
     bool pass = true;
     const float tol = 0.1f;
-    float* outD = fpga.get_outD_ptr();
+    float* outE = fpga.get_outE_ptr();
 
     for (int r = 0; r < GEMM_M; ++r) {
         for (int c = 0; c < GEMM_N; ++c) {
             const std::size_t idx = (std::size_t)r * (std::size_t)GEMM_N + (std::size_t)c;
-            const float diff = std::fabs(outD[idx] - golden[idx]);
+            const float diff = std::fabs(outE[idx] - golden[idx]);
             if (diff > tol) pass = false;
         }
     }
 
     // Debug print
     std::cout << "\n=== Debug: last row ===" << std::endl;
-    std::cout << "outD (HW): ";
-    for (int j = 0; j < 8; j++) std::cout << outD[(std::size_t)(GEMM_M - 1) * GEMM_N + j] << ", ";
+    std::cout << "outE (HW): ";
+    for (int j = 0; j < 8; j++) std::cout << outE[(std::size_t)(GEMM_M - 1) * GEMM_N + j] << ", ";
     std::cout << "\ngolden (SW): ";
     for (int j = 0; j < 8; j++) std::cout << golden[(std::size_t)(GEMM_M - 1) * GEMM_N + j] << ", ";
     std::cout << "\n";
