@@ -26,9 +26,9 @@ void adder(
 void gemm(float16 inA[num_chunks_A], float16 inB[num_chunks_B], float16 inC[num_chunks_C], float16 inD[num_chunks_D], float16 outE[num_chunks_E]){
     // AXI Ports. Map inC to gmem2 to maximize bandwidth if available, otherwise shares bundle
     #pragma HLS INTERFACE mode=m_axi port=inA  bundle=gmem0 offset=slave max_widen_bitwidth=512 num_read_outstanding=1 max_read_burst_length=64
-    #pragma HLS INTERFACE mode=m_axi port=inB  bundle=gmem0 offset=slave max_widen_bitwidth=512 num_read_outstanding=1 max_read_burst_length=64
-    #pragma HLS INTERFACE mode=m_axi port=inC  bundle=gmem0 offset=slave max_widen_bitwidth=512 num_read_outstanding=1 max_read_burst_length=64
-    #pragma HLS INTERFACE mode=m_axi port=inD  bundle=gmem0 offset=slave max_widen_bitwidth=512 num_read_outstanding=1 max_read_burst_length=64
+    #pragma HLS INTERFACE mode=m_axi port=inB  bundle=gmem1 offset=slave max_widen_bitwidth=512 num_read_outstanding=1 max_read_burst_length=64
+    #pragma HLS INTERFACE mode=m_axi port=inC  bundle=gmem2 offset=slave max_widen_bitwidth=512 num_read_outstanding=1 max_read_burst_length=64
+    #pragma HLS INTERFACE mode=m_axi port=inD  bundle=gmem3 offset=slave max_widen_bitwidth=512 num_read_outstanding=1 max_read_burst_length=64
     #pragma HLS INTERFACE mode=m_axi port=outE bundle=gmem0 offset=slave max_widen_bitwidth=512 num_write_outstanding=1 max_write_burst_length=64
 
     #pragma HLS INTERFACE mode=s_axilite port=inA  bundle=control
